@@ -56,6 +56,14 @@ async function main() {
         results.push(busyFromIcs(await fetchIcs(url), from, to))
       } catch (e) {
         errors.push(describe(e))
+        // Log the kind of failure and the host only — the full address is a secret.
+        let host = '?'
+        try {
+          host = new URL(url.replace(/^webcal:/i, 'https:')).host
+        } catch {
+          host = 'invalid URL'
+        }
+        console.log(`  feed on ${host} failed: ${String(e?.message ?? e).slice(0, 120)}`)
       }
     }
     const calendar = { syncedAt: Date.now(), error: errors.length ? [...new Set(errors)].join(' · ') : null }
