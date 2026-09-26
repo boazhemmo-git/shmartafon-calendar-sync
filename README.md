@@ -4,6 +4,8 @@ Background job for [שמרטפון](https://shmartafon-hemmo.web.app). Every 15 
 
 - `busy.mjs`: iCal → busy blocks per Israeli date. It expands recurring events, skips events marked "free" or cancelled, and splits events that cross midnight.
 - `sync.mjs`: reads `calendarFeeds/*` and writes `people/{uid}.calendar`.
+- `notify.mjs` / `notify-core.mjs`: the daily pickup push notification, sent 30 minutes before the gan closes (at most once a day, `notifyLog/{date}`). Run the workflow manually with **test_push** checked to send a test notification to every parent device.
+- `domain.mjs` is **generated** from the app (`npm run bundle:server` in `shmartafon`). It holds the same gan-hours, holiday and pickup rules the app uses. Don't edit it here.
 - Credentials are kept in the `FIREBASE_SERVICE_ACCOUNT` repository secret. Nothing secret is in the code.
 
 ```bash

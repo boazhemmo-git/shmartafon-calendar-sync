@@ -1,23 +1,11 @@
 // Background job: reads each parent's private iCal addresses from Firestore, computes busy
 // times, and writes them to people/{uid}.calendar for the app to show as "busy".
-import { cert, initializeApp } from 'firebase-admin/app'
-import { FieldValue, getFirestore } from 'firebase-admin/firestore'
+import { FieldValue } from 'firebase-admin/firestore'
+import { adminDb } from './admin.mjs'
 import { busyFromIcs, mergeBusy } from './busy.mjs'
 
 const PAST_DAYS = 7
 const FUTURE_DAYS = 70
-
-function init() {
-  if (process.env.FIRESTORE_EMULATOR_HOST) {
-    initializeApp({ projectId: process.env.GCLOUD_PROJECT ?? 'demo-shmartafon' })
-  } else {
-    const raw = process.env.FIREBASE_SERVICE_ACCOUNT
-    if (!raw) throw new Error('FIREBASE_SERVICE_ACCOUNT is not set')
-    const sa = JSON.parse(raw)
-    initializeApp({ credential: cert(sa), projectId: sa.project_id })
-  }
-  return getFirestore()
-}
 
 async function fetchIcs(url) {
   const res = await fetch(url.replace(/^webcal:/i, 'https:'), { signal: AbortSignal.timeout(20_000), redirect: 'follow' })
@@ -37,7 +25,7 @@ function describe(err) {
 }
 
 async function main() {
-  const db = init()
+  const db = adminDb()
   const now = Date.now()
   const from = new Date(now - PAST_DAYS * 86_400_000)
   const to = new Date(now + FUTURE_DAYS * 86_400_000)
