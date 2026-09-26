@@ -31,7 +31,7 @@ async function fetchIcs(url) {
 function describe(err) {
   const msg = String(err?.message ?? err)
   if (/HTTP 404|HTTP 403|HTTP 401/.test(msg)) return 'הכתובת לא נמצאה או שאין אליה גישה (אולי אופסה?)'
-  if (/not an iCal/.test(msg)) return 'הכתובת לא מחזירה יומן iCal'
+  if (/not an iCal/.test(msg)) return 'זו כתובת של דף ולא של קובץ יומן — צריך את ״כתובת סודית בפורמט iCal״ (מסתיימת ב-basic.ics)'
   if (/timeout|aborted/i.test(msg)) return 'היומן לא הגיב בזמן'
   return 'שגיאה בקריאת היומן'
 }
