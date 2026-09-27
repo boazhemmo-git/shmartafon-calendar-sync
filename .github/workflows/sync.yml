@@ -3,6 +3,9 @@ name: calendar-sync
 on:
   schedule:
     - cron: '*/15 * * * *'
+    # Backup aimed at the pickup notifications (GitHub drops most */15 runs). UTC times:
+    # 15:30/15:45 and Fri 12:30/12:45 Israel time, in both summer (UTC+3) and winter (UTC+2).
+    - cron: '30,45 9,10,12,13 * * 0-5'
   workflow_dispatch:
     inputs:
       test_push:
