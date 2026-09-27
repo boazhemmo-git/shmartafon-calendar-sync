@@ -39,3 +39,22 @@ export function buildNotification(plan, sitter) {
       return { title: `⚠️ אין מי שיאסוף היום ב-${at}!`, body: 'אף הורה לא פנוי ואין שמרטף משובץ. לחצו כדי למצוא מישהו.', tag, url: '/', requireInteraction: true }
   }
 }
+
+/**
+ * Personal reminder for a parent who picks up (booked, or free with no sitter), sent 15 minutes
+ * before the gan closes — the same heads-up a sitter gets.
+ * @param plan      result of pickupPlan()
+ * @param parent    the parent receiving it ({ uid, name })
+ * @param parents   all parents, to mention the other free parent when both are free
+ */
+export function buildParentReminder(plan, parent, parents) {
+  const others = plan.pickupUids.filter((u) => u !== parent.uid).map((u) => parents.find((p) => p.uid === u)?.name).filter(Boolean)
+  const also = others.length ? ` (לפי הלו״ז גם ${others.join(' ו')} פנוי/ה — כדאי לתאם)` : ''
+  return {
+    title: `🚸 תזכורת: איסוף מהגן ב-${hhmm(plan.end)}`,
+    body: `${parent.name}, הגן נסגר ב-${hhmm(plan.end)} — הזמן לצאת לאסוף את הילדים 🙂${also}`,
+    tag: `pickup-remind-${plan.date}`,
+    url: '/',
+    requireInteraction: true,
+  }
+}

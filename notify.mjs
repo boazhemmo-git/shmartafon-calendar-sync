@@ -4,7 +4,7 @@
 import webpush from 'web-push'
 import { adminDb } from './admin.mjs'
 import { nowMinutesIL, pickupPlan, todayIL, weekStart, DEFAULT_SETTINGS } from './domain.mjs'
-import { buildNotification } from './notify-core.mjs'
+import { buildNotification, buildParentReminder } from './notify-core.mjs'
 
 const db = adminDb()
 
@@ -45,6 +45,16 @@ async function send(subs, payload) {
   return ok
 }
 
+/** True the first time it's called for `path` (atomic create), false afterwards. */
+async function once(path, kind) {
+  try {
+    await db.doc(path).create({ kind, at: Date.now() })
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function main() {
   const keys = await vapid()
   webpush.setVapidDetails('https://shmartafon-hemmo.web.app', keys.publicKey, keys.privateKey)
@@ -66,15 +76,24 @@ async function main() {
   if (!plan) return console.log('pickup: no gan today')
   if (now < plan.notifyAt || now >= plan.end) return console.log(`pickup: not in the notify window (${plan.notifyAt}–${plan.end}, now ${now})`)
 
-  // create() fails if the doc exists, so two overlapping runs can't both notify.
-  try {
-    await db.doc(`notifyLog/${today}`).create({ kind: plan.kind, at: Date.now() })
-  } catch {
-    return console.log('pickup: already notified today')
+  // 1) 30 min before: every parent hears who picks up. create() fails if the log doc exists,
+  //    so overlapping runs can't send twice.
+  if (await once(`notifyLog/${today}`, plan.kind)) {
+    const sitter = plan.kind === 'sitter' ? (await db.doc(`sitters/${plan.booking.sitterId}`).get()).data() : undefined
+    const n = await send(subs, buildNotification(plan, sitter))
+    console.log(`pickup (${plan.kind}): sent to ${n}/${subs.length} device(s)`)
+  } else console.log('pickup: overview already sent today')
+
+  // 2) 15 min before: the parent(s) picking up get a personal reminder, like a sitter would.
+  if (now >= plan.remindAt && plan.pickupUids.length && (await once(`notifyLog/${today}-remind`, plan.kind))) {
+    for (const uid of plan.pickupUids) {
+      const parent = parents.find((p) => p.uid === uid)
+      if (!parent) continue
+      const mine = subs.filter((s) => s.get('uid') === uid)
+      const n = await send(mine, buildParentReminder(plan, parent, parents))
+      console.log(`reminder to ${uid.slice(0, 6)}…: ${n}/${mine.length} device(s)`)
+    }
   }
-  const sitter = plan.kind === 'sitter' ? (await db.doc(`sitters/${plan.booking.sitterId}`).get()).data() : undefined
-  const n = await send(subs, buildNotification(plan, sitter))
-  console.log(`pickup (${plan.kind}): sent to ${n}/${subs.length} device(s)`)
 }
 
 main().catch((e) => {

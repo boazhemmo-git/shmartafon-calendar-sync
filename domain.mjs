@@ -12821,20 +12821,25 @@ var isParentBooking = (b) => b.sitterId.startsWith(PARENT_PREFIX);
 
 // src/domain/pickup.ts
 var PICKUP_NOTICE = 30;
+var PICKUP_REMINDER = 15;
 function pickupPlan(date, settings, week, parents) {
   const info = dayInfo(date, settings, week?.days?.[date]);
   if (!info.framework) return null;
   const end = info.framework.end;
   const cell = computeDay(info, parents, week).find((c) => c.slot <= end && end < c.slot + STEP);
   if (!cell) return null;
-  const base = { date, end, notifyAt: end - PICKUP_NOTICE, freeParents: [] };
-  if (cell.booking) return { ...base, kind: isParentBooking(cell.booking) ? "parent" : "sitter", booking: cell.booking };
-  if (cell.free.length) return { ...base, kind: "free", freeParents: parents.filter((p) => cell.free.includes(p.uid)) };
+  const base = { date, end, notifyAt: end - PICKUP_NOTICE, remindAt: end - PICKUP_REMINDER, freeParents: [], pickupUids: [] };
+  if (cell.booking) {
+    const b = cell.booking;
+    return isParentBooking(b) ? { ...base, kind: "parent", booking: b, pickupUids: [b.sitterId.slice(PARENT_PREFIX.length)] } : { ...base, kind: "sitter", booking: b };
+  }
+  if (cell.free.length) return { ...base, kind: "free", freeParents: parents.filter((p) => cell.free.includes(p.uid)), pickupUids: [...cell.free] };
   return { ...base, kind: "none" };
 }
 export {
   DEFAULT_SETTINGS,
   PICKUP_NOTICE,
+  PICKUP_REMINDER,
   firstName,
   hhmm,
   messageRange,

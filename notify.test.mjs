@@ -27,3 +27,13 @@ test('parents and nobody', () => {
   assert.equal(buildNotification(plan('free', { freeParents: [{ name: 'בועז' }, { name: 'דנה' }] })).body, 'בועז ודנה פנויים לפי הלו״ז — מי אוסף?')
   assert.equal(buildNotification(plan('none')).title, '⚠️ אין מי שיאסוף היום ב-16:00!')
 })
+
+test('personal reminder for a parent who picks up', async () => {
+  const { buildParentReminder } = await import('./notify-core.mjs')
+  const parents = [{ uid: 'a', name: 'בועז' }, { uid: 'b', name: 'דנה' }]
+  const solo = buildParentReminder({ ...plan('free'), pickupUids: ['a'] }, parents[0], parents)
+  assert.equal(solo.title, '🚸 תזכורת: איסוף מהגן ב-16:00')
+  assert.equal(solo.body, 'בועז, הגן נסגר ב-16:00 — הזמן לצאת לאסוף את הילדים 🙂')
+  const both = buildParentReminder({ ...plan('free'), pickupUids: ['a', 'b'] }, parents[1], parents)
+  assert.equal(both.body, 'דנה, הגן נסגר ב-16:00 — הזמן לצאת לאסוף את הילדים 🙂 (לפי הלו״ז גם בועז פנוי/ה — כדאי לתאם)')
+})
