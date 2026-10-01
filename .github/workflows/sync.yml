@@ -9,9 +9,14 @@ on:
   workflow_dispatch:
     inputs:
       test_push:
-        description: 'Send a test notification to every parent device now'
+        description: 'Send a test notification to parent devices now'
         type: boolean
         default: false
+      test_platform:
+        description: 'Which devices get the test'
+        type: choice
+        options: [all, android, iphone]
+        default: all
 
 permissions:
   contents: write
@@ -69,3 +74,4 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           TEST_PUSH: ${{ inputs.test_push && '1' || '' }}
+          TEST_PLATFORM: ${{ inputs.test_platform }}

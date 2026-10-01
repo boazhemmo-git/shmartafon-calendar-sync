@@ -63,8 +63,12 @@ async function main() {
   const { parents, subs } = await parentsAndSubs()
 
   if (process.env.TEST_PUSH === '1') {
-    const n = await send(subs, { title: '🔔 בדיקת התראות', body: 'ההתראות של שמרטפון עובדות ✓', tag: 'test', url: '/' })
-    return console.log(`test push: ${n}/${subs.length} device(s)`)
+    // TEST_PLATFORM=android|iphone limits the test to that kind of device (matched on the saved user agent).
+    const platform = process.env.TEST_PLATFORM || 'all'
+    const match = { android: /Android/i, iphone: /iPhone|iPad|iPod|Macintosh/i }[platform]
+    const targets = match ? subs.filter((s) => match.test(s.get('ua') ?? '')) : subs
+    const n = await send(targets, { title: '🔔 בדיקת התראות', body: 'ההתראות של שמרטפון עובדות ✓', tag: 'test', url: '/' })
+    return console.log(`test push (${platform}): ${n}/${targets.length} device(s)`)
   }
 
   // NOTIFY_DATE / NOTIFY_NOW (minutes) simulate another moment — for local testing only (no real waiting).
