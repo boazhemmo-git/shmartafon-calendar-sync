@@ -16,14 +16,13 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: calendar-sync
-  cancel-in-progress: false
-
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    concurrency:
+      group: calendar-sync
+      cancel-in-progress: false
     env:
       HAS_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
     steps:
@@ -39,12 +38,6 @@ jobs:
         run: node sync.mjs
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-      - name: Pickup notifications
-        if: env.HAS_KEY == 'true'
-        run: node notify.mjs
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          TEST_PUSH: ${{ inputs.test_push && '1' || '' }}
       # GitHub disables schedules on repos with no activity for 60 days; an occasional empty commit keeps it running.
       - name: Keep the schedule alive
         run: |
@@ -55,3 +48,24 @@ jobs:
             git commit --allow-empty -m "keepalive"
             git push
           fi
+
+  # Separate job: it may wait up to ~16 minutes to send exactly at 15:30 / 15:45 (12:30 / 12:45 on Fridays),
+  # and that wait must not hold up the calendar sync. Double sends are prevented by notifyLog/{date}.
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HAS_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Pickup notifications
+        if: env.HAS_KEY == 'true'
+        run: node notify.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          TEST_PUSH: ${{ inputs.test_push && '1' || '' }}

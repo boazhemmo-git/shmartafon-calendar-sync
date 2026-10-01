@@ -3,10 +3,12 @@
 // TEST_PUSH=1 sends a test notification to every parent device right away.
 import webpush from 'web-push'
 import { adminDb } from './admin.mjs'
-import { nowMinutesIL, pickupPlan, todayIL, weekStart, DEFAULT_SETTINGS } from './domain.mjs'
+import { israelMidnightMs, pickupPlan, todayIL, weekStart, DEFAULT_SETTINGS } from './domain.mjs'
 import { buildNotification, buildParentReminder } from './notify-core.mjs'
 
 const db = adminDb()
+/** A run this close before a send time waits and sends exactly on time (runs come every 15 min). */
+const LOOKAHEAD_MS = 16 * 60_000
 
 /** VAPID keys are created once and kept in Firestore: the private half in an admin-only doc. */
 async function vapid() {
@@ -65,34 +67,81 @@ async function main() {
     return console.log(`test push: ${n}/${subs.length} device(s)`)
   }
 
-  // NOTIFY_DATE / NOTIFY_NOW (minutes) simulate another moment — for local testing only.
+  // NOTIFY_DATE / NOTIFY_NOW (minutes) simulate another moment — for local testing only (no real waiting).
   const today = process.env.NOTIFY_DATE || todayIL()
-  const now = process.env.NOTIFY_NOW ? Number(process.env.NOTIFY_NOW) : nowMinutesIL()
-  const settingsSnap = await db.doc('settings/app').get()
-  const settings = settingsSnap.exists ? { ...DEFAULT_SETTINGS, ...settingsSnap.data() } : DEFAULT_SETTINGS
-  const weekSnap = await db.doc(`weeks/${weekStart(today)}`).get()
-  const week = weekSnap.exists ? { id: weekSnap.id, ...weekSnap.data() } : undefined
-  const plan = pickupPlan(today, settings, week, parents)
+  const simulated = !!process.env.NOTIFY_NOW
+  const midnight = israelMidnightMs(today)
+  const nowMs = () => (simulated ? midnight + Number(process.env.NOTIFY_NOW) * 60_000 : Date.now())
+
+  const loadPlan = async () => {
+    const settingsSnap = await db.doc('settings/app').get()
+    const settings = settingsSnap.exists ? { ...DEFAULT_SETTINGS, ...settingsSnap.data() } : DEFAULT_SETTINGS
+    const weekSnap = await db.doc(`weeks/${weekStart(today)}`).get()
+    const week = weekSnap.exists ? { id: weekSnap.id, ...weekSnap.data() } : undefined
+    return pickupPlan(today, settings, week, parents)
+  }
+
+  let plan = await loadPlan()
   if (!plan) return console.log('pickup: no gan today')
-  if (now < plan.notifyAt || now >= plan.end) return console.log(`pickup: not in the notify window (${plan.notifyAt}–${plan.end}, now ${now})`)
 
-  // 1) 30 min before: every parent hears who picks up. create() fails if the log doc exists,
-  //    so overlapping runs can't send twice.
-  if (await once(`notifyLog/${today}`, plan.kind)) {
-    const sitter = plan.kind === 'sitter' ? (await db.doc(`sitters/${plan.booking.sitterId}`).get()).data() : undefined
-    const n = await send(subs, buildNotification(plan, sitter))
-    console.log(`pickup (${plan.kind}): sent to ${n}/${subs.length} device(s)`)
-  } else console.log('pickup: overview already sent today')
+  const steps = [
+    {
+      // 30 min before: every parent hears who picks up.
+      log: `notifyLog/${today}`,
+      at: (pl) => pl.notifyAt,
+      run: async (pl) => {
+        const sitter = pl.kind === 'sitter' ? (await db.doc(`sitters/${pl.booking.sitterId}`).get()).data() : undefined
+        const n = await send(subs, buildNotification(pl, sitter))
+        console.log(`pickup (${pl.kind}): sent to ${n}/${subs.length} device(s) at ${new Date().toISOString()}`)
+      },
+    },
+    {
+      // 15 min before: the parent(s) picking up get a personal reminder, like a sitter would.
+      log: `notifyLog/${today}-remind`,
+      at: (pl) => pl.remindAt,
+      run: async (pl) => {
+        for (const uid of pl.pickupUids) {
+          const parent = parents.find((p) => p.uid === uid)
+          if (!parent) continue
+          const mine = subs.filter((s) => s.get('uid') === uid)
+          const n = await send(mine, buildParentReminder(pl, parent, parents))
+          console.log(`reminder to ${uid.slice(0, 6)}…: ${n}/${mine.length} device(s) at ${new Date().toISOString()}`)
+        }
+      },
+    },
+  ]
 
-  // 2) 15 min before: the parent(s) picking up get a personal reminder, like a sitter would.
-  if (now >= plan.remindAt && plan.pickupUids.length && (await once(`notifyLog/${today}-remind`, plan.kind))) {
-    for (const uid of plan.pickupUids) {
-      const parent = parents.find((p) => p.uid === uid)
-      if (!parent) continue
-      const mine = subs.filter((s) => s.get('uid') === uid)
-      const n = await send(mine, buildParentReminder(plan, parent, parents))
-      console.log(`reminder to ${uid.slice(0, 6)}…: ${n}/${mine.length} device(s)`)
+  let waited = false
+  for (const step of steps) {
+    const targetMs = midnight + step.at(plan) * 60_000
+    const endMs = midnight + plan.end * 60_000
+    if (nowMs() >= endMs) {
+      console.log('pickup: gan already closed')
+      break
     }
+    const wait = targetMs - nowMs()
+    if (wait > LOOKAHEAD_MS) {
+      console.log(`${step.log}: not yet (in ${Math.round(wait / 60_000)} min)`)
+      break
+    }
+    if ((await db.doc(step.log).get()).exists) {
+      console.log(`${step.log}: already sent`)
+      continue
+    }
+    // Runs come every ~15 minutes and start a little late, so the run before the target
+    // waits here and sends on the exact minute instead of up to 15 minutes late.
+    if (wait > 0) {
+      // One wait per run; the next run (15 minutes later) handles the following step.
+      if (waited) break
+      waited = true
+      console.log(`${step.log}: waiting ${Math.round(wait / 1000)}s to send on time`)
+      if (!simulated) await new Promise((r) => setTimeout(r, wait))
+      plan = (await loadPlan()) ?? plan // pick up any change made while waiting
+    }
+    if (step === steps[1] && !plan.pickupUids.length) continue
+    // create() fails if the log exists, so overlapping runs can't both send.
+    if (await once(step.log, plan.kind)) await step.run(plan)
+    else console.log(`${step.log}: already sent`)
   }
 }
 

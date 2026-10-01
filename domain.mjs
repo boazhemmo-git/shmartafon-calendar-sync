@@ -49,6 +49,16 @@ function nowMinutesIL(now = Date.now()) {
   const p = partsIL(now);
   return p.hour * 60 + p.minute;
 }
+function israelMidnightMs(ds) {
+  const utc = utcDay(ds);
+  const offsetAt = (ms) => {
+    const p = partsIL(ms);
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - ms;
+  };
+  const first = utc - offsetAt(utc);
+  const second = offsetAt(first);
+  return second === offsetAt(utc) ? first : utc - second;
+}
 function hhmm(min) {
   return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
 }
@@ -12842,6 +12852,7 @@ export {
   PICKUP_REMINDER,
   firstName,
   hhmm,
+  israelMidnightMs,
   messageRange,
   nowMinutesIL,
   pickupPlan,
