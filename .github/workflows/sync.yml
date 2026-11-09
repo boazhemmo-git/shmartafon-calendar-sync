@@ -6,6 +6,9 @@ on:
     # Backup aimed at the pickup notifications (GitHub drops most */15 runs). UTC times:
     # 15:30/15:45 and Fri 12:30/12:45 Israel time, in both summer (UTC+3) and winter (UTC+2).
     - cron: '30,45 9,10,12,13 * * 0-5'
+    # Extra morning triggers (Sun–Fri): GitHub skips many, but any one that fires within 5.5h of the
+    # send time stays up and sends on the minute (see the notify job).
+    - cron: '7,37 6-12 * * 0-5'
   workflow_dispatch:
     inputs:
       test_push:
@@ -54,11 +57,14 @@ jobs:
             git push
           fi
 
-  # Separate job: it may wait up to ~16 minutes to send exactly at 15:30 / 15:45 (12:30 / 12:45 on Fridays),
-  # and that wait must not hold up the calendar sync. Double sends are prevented by notifyLog/{date}.
+  # Separate job: it waits to send exactly at 15:30 / 15:45 (12:30 / 12:45 on Fridays), and that wait
+  # must not hold up the calendar sync. Double sends are prevented by notifyLog/{date}.
+  # cron-job.org runs (every 15 min) look 16 minutes ahead. GitHub's own schedule fires only ~5 times
+  # a day, so those runs look 5.5 hours ahead and sleep until the send time — the notifications keep
+  # arriving on time even when cron-job.org stops.
   notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: ${{ github.event_name == 'schedule' && 350 || 20 }}
     env:
       HAS_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
     steps:
@@ -75,3 +81,4 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           TEST_PUSH: ${{ inputs.test_push && '1' || '' }}
           TEST_PLATFORM: ${{ inputs.test_platform }}
+          NOTIFY_LOOKAHEAD_MIN: ${{ github.event_name == 'schedule' && '330' || '16' }}

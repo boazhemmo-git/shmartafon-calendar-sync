@@ -7,8 +7,14 @@ import { israelMidnightMs, pickupPlan, todayIL, weekStart, DEFAULT_SETTINGS } fr
 import { buildNotification, buildParentReminder } from './notify-core.mjs'
 
 const db = adminDb()
-/** A run this close before a send time waits and sends exactly on time (runs come every 15 min). */
-const LOOKAHEAD_MS = 16 * 60_000
+/**
+ * A run this close before a send time waits and sends exactly on time. 16 minutes when runs come
+ * every 15 (cron-job.org); GitHub's own schedule fires only a few times a day, so those runs look
+ * hours ahead (NOTIFY_LOOKAHEAD_MIN) and stay up for both steps — notifications don't depend on cron-job.org.
+ */
+const LOOKAHEAD_MIN = Number(process.env.NOTIFY_LOOKAHEAD_MIN) || 16
+const LOOKAHEAD_MS = LOOKAHEAD_MIN * 60_000
+const LONG_WAIT = LOOKAHEAD_MIN > 16
 
 /** VAPID keys are created once and kept in Firestore: the private half in an admin-only doc. */
 async function vapid() {
@@ -136,7 +142,8 @@ async function main() {
     // waits here and sends on the exact minute instead of up to 15 minutes late.
     if (wait > 0) {
       // One wait per run; the next run (15 minutes later) handles the following step.
-      if (waited) break
+      // A long-lookahead run has no next run to rely on, so it waits for both.
+      if (waited && !LONG_WAIT) break
       waited = true
       console.log(`${step.log}: waiting ${Math.round(wait / 1000)}s to send on time`)
       if (!simulated) await new Promise((r) => setTimeout(r, wait))
